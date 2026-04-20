@@ -19,8 +19,16 @@
 #include "lib/sha/sha256.h"
 #include "lib/sha/sha1.h"
 #ifdef HAVE_OPENSSL
+/*
+ * openssl/sha.h (pulled in by pem.h) also typedef-s SHA256_CTX, conflicting
+ * with our lib/sha/sha256.h.  Push/pop the macro to shield our definition:
+ * OpenSSL ends up creating 'openssl_sha256_ctx_unused_t' instead.
+ */
+#pragma push_macro("SHA256_CTX")
+#define SHA256_CTX openssl_sha256_ctx_unused_t
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#pragma pop_macro("SHA256_CTX")
 #endif
 
 /* ---- byte-swap helpers ---- */
