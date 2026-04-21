@@ -74,7 +74,7 @@ int fillin_map_symbol(kallsym_t *kallsym, char *img_buf, map_symbol_t *symbol, i
     symbol->memblock_phys_alloc_relo = get_symbol_offset_zero(kallsym, img_buf, "memblock_phys_alloc_try_nid");
     symbol->memblock_virt_alloc_relo = get_symbol_offset_zero(kallsym, img_buf, "memblock_virt_alloc_try_nid");
     if (!symbol->memblock_phys_alloc_relo && !symbol->memblock_virt_alloc_relo)
-        tools_loge_exit("no symbol memblock_alloc");
+        tools_loge("no symbol memblock_alloc");
 
     uint64_t memblock_alloc_try_nid = get_symbol_offset_zero(kallsym, img_buf, "memblock_alloc_try_nid");
 
