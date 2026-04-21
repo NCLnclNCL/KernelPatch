@@ -44,7 +44,7 @@ int32_t get_symbol_offset_exit(kallsym_t *info, char *img, char *symbol)
     if (offset >= 0) {
         return offset;
     } else {
-      //  tools_loge_exit("no symbol %s\n", symbol);
+        tools_loge("no symbol %s\n", symbol);
     }
 }
 
