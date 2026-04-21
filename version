@@ -1,3 +1,8 @@
 #define MAJOR 0
+<<<<<<< HEAD
 #define MINOR 13
 #define PATCH 1
+=======
+#define MINOR 12
+#define PATCH 4
+>>>>>>> parent of 8b6c92c ([fix]:1. Fixes the issue where address alignment causes backup tcp_init_sock region functions to skip header PAC instructions. 2. Nop the paired PAC verification within this region to avoid SCS instruction issues. (#225))
