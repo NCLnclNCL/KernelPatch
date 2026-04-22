@@ -12,7 +12,9 @@
  *
  * ⚠️ 如果官方修改了 ver_and_cmd 的 magic（0x1158），这里必须同步！
  */
-
+#define __ASSEMBLY__
+#include "./setup.h"
+#include "./start.h"
 #define VER_CMD_MAGIC   0x1158      /* ver_and_cmd 中间 16 位的 magic */
 
 .text
@@ -90,3 +92,5 @@ supercall_trampoline_compat:
     ldr     x9, [x9, :lo12:g_orig_compat]
     br      x9
 .size supercall_trampoline_compat, . - supercall_trampoline_compat
+
+#undef __ASSEMBLY__
