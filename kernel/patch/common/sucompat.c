@@ -2,7 +2,13 @@
 /* 
  * Copyright (C) 2023 bmax121. All Rights Reserved.
  */
+// [CKB-MOD] Anti side-channel G5: 与 supercall.c 保持一致
+#define ANTI_SIDECHANNEL_V4G
 
+// [CKB-MOD] G5: 统一函数指针类型（execve/fstatat/faccessat wrapper 共用）
+#ifdef ANTI_SIDECHANNEL_V4G
+typedef long (*orig_syscall_func_t)(long, long, long, long, long, long);
+#endif
 #include <linux/list.h>
 #include <ktypes.h>
 #include <compiler.h>
@@ -263,8 +269,167 @@ static void handle_before_execve(char **__user u_filename_p, char **__user uargv
 // SYSCALL_DEFINE3(execve, const char __user *, filename, const char __user *const __user *, argv,
 //                 const char __user *const __user *, envp)
 
+// =====================================================================
+// [CKB-MOD] G7: execve fp_hook + KPM 回调注册机制（2026-04-11）
+//
+// 问题：execve 用 hook_syscalln 时，transit 框架有 ~40 cycles 固有开销。
+//       IO_Redirect KPM 也 hook execve，两个 fp_hook 不能共存。
+//
+// 方案：sucompat 用 fp_hook 替换 execve，导出注册接口让 KPM 注册回调。
+//       sucompat 的 wrapper 里依次调用所有注册的回调 + 自己的逻辑。
+//       IO_Redirect 不再自己 hook execve，改为注册回调。
+// =====================================================================
+#ifdef ANTI_SIDECHANNEL_V4G
+
+#define MAX_EXECVE_CALLBACKS 4
+
+// KPM 注册的 execve before 回调
+typedef void (*execve_before_callback_t)(void *args, void *udata);
+static execve_before_callback_t g_execve_callbacks[MAX_EXECVE_CALLBACKS] = {};
+static void *g_execve_cb_udata[MAX_EXECVE_CALLBACKS] = {};
+static int g_execve_cb_count = 0;
+
+// 注册 execve before 回调（KPM 模块调用）
+int register_execve_before_hook(void *callback, void *udata)
+{
+    if (g_execve_cb_count >= MAX_EXECVE_CALLBACKS) return -1;
+    g_execve_callbacks[g_execve_cb_count] = (execve_before_callback_t)callback;
+    g_execve_cb_udata[g_execve_cb_count] = udata;
+    g_execve_cb_count++;
+    logkfi("registered execve callback[%d]: %llx\n", g_execve_cb_count - 1, (unsigned long long)callback);
+    return 0;
+}
+KP_EXPORT_SYMBOL(register_execve_before_hook);
+
+// 注销 execve before 回调
+void unregister_execve_before_hook(void *callback)
+{
+    for (int i = 0; i < g_execve_cb_count; i++) {
+        if ((void *)g_execve_callbacks[i] == callback) {
+            // 移除：后面的前移
+            for (int j = i; j < g_execve_cb_count - 1; j++) {
+                g_execve_callbacks[j] = g_execve_callbacks[j + 1];
+                g_execve_cb_udata[j] = g_execve_cb_udata[j + 1];
+            }
+            g_execve_cb_count--;
+            logkfi("unregistered execve callback: %llx\n", (unsigned long long)callback);
+            return;
+        }
+    }
+}
+KP_EXPORT_SYMBOL(unregister_execve_before_hook);
+
+static void *g_orig_execve = NULL;
+static void *g_orig_compat_execve = NULL;
+
+// execve wrapper：调用 sucompat 逻辑和 KPM 回调
+static long sucompat_execve_wrapper(long arg0, long arg1, long arg2,
+                                     long arg3, long arg4, long arg5)
+{
+    // [CKB-MOD] G7: 不加 uid 预检查！
+    // APatch Manager 第一次执行 truncate superkey 时，uid 可能还没在 su_allow_uid 列表里
+    // （鸡生蛋问题：superkey 验证本身就是通过 execve truncate 完成的）
+    // 踩坑记录：G4 和 G7 都因为 uid 预检查导致 APatch 崩溃
+
+    // 调试计数器
+    static unsigned long wrapper_count = 0;
+    wrapper_count++;
+    if ((wrapper_count % 5000) == 0) {
+        logki("G7-debug: execve_wrapper called %lu times, uid=%d\n", wrapper_count, current_uid());
+    }
+    // 构造 fargs 结构给 KPM 回调使用
+    hook_fargs3_t fargs;
+    fargs.skip_origin = 0;
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        fargs.arg0 = (uint64_t)regs->regs[0];
+        fargs.arg1 = (uint64_t)regs->regs[1];
+        fargs.arg2 = (uint64_t)regs->regs[2];
+    } else {
+        fargs.arg0 = (uint64_t)arg0;
+        fargs.arg1 = (uint64_t)arg1;
+        fargs.arg2 = (uint64_t)arg2;
+    }
+
+    // 1. sucompat 自己的逻辑
+    void *arg0p, *arg1p;
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        arg0p = &regs->regs[0];
+        arg1p = &regs->regs[1];
+    } else {
+        arg0p = &arg0;
+        arg1p = &arg1;
+    }
+    handle_before_execve((char **)arg0p, (char **)arg1p, (void *)0);
+
+    // 2. KPM 注册的回调（如 IO_Redirect）
+    for (int i = 0; i < g_execve_cb_count; i++) {
+        if (g_execve_callbacks[i]) {
+            g_execve_callbacks[i](&fargs, g_execve_cb_udata[i]);
+        }
+    }
+
+    // 3. 检查是否有回调设置了 skip_origin
+    if (fargs.skip_origin) {
+        return fargs.ret;
+    }
+
+    // 4. 调用原始 execve
+    return ((orig_syscall_func_t)g_orig_execve)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+// compat execve wrapper
+static long sucompat_compat_execve_wrapper(long arg0, long arg1, long arg2,
+                                            long arg3, long arg4, long arg5)
+{
+    hook_fargs3_t fargs;
+    fargs.skip_origin = 0;
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        fargs.arg0 = (uint64_t)regs->regs[0];
+        fargs.arg1 = (uint64_t)regs->regs[1];
+        fargs.arg2 = (uint64_t)regs->regs[2];
+    } else {
+        fargs.arg0 = (uint64_t)arg0;
+        fargs.arg1 = (uint64_t)arg1;
+        fargs.arg2 = (uint64_t)arg2;
+    }
+
+    void *arg0p, *arg1p;
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        arg0p = &regs->regs[0];
+        arg1p = &regs->regs[1];
+    } else {
+        arg0p = &arg0;
+        arg1p = &arg1;
+    }
+    handle_before_execve((char **)arg0p, (char **)arg1p, (void *)1);
+
+    for (int i = 0; i < g_execve_cb_count; i++) {
+        if (g_execve_callbacks[i]) {
+            g_execve_callbacks[i](&fargs, g_execve_cb_udata[i]);
+        }
+    }
+
+    if (fargs.skip_origin) {
+        return fargs.ret;
+    }
+
+    return ((orig_syscall_func_t)g_orig_compat_execve)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+#endif // ANTI_SIDECHANNEL_V4G
+
 static void before_execve(hook_fargs3_t *args, void *udata)
 {
+    // [CKB-MOD] G5 调试：计数器，确认 Hunter 是否测 execve
+    static unsigned long execve_count = 0;
+    execve_count++;
+    if ((execve_count % 5000) == 0) {
+        logki("anti-sc-debug: before_execve called %lu times, uid=%d\n", execve_count, current_uid());
+    }
     void *arg0p = syscall_argn_p(args, 0);
     void *arg1p = syscall_argn_p(args, 1);
     handle_before_execve((char **)arg0p, (char **)arg1p, udata);
@@ -304,6 +469,13 @@ __maybe_unused static void before_execveat(hook_fargs5_t *args, void *udata)
 // 		struct statx __user *, buffer)
 static void su_handler_arg1_ufilename_before(hook_fargs6_t *args, void *udata)
 {
+    // [CKB-MOD] G5 调试：计数器，确认 Hunter 是否测 fstatat/faccessat
+    static unsigned long fstat_count = 0;
+    fstat_count++;
+    if ((fstat_count % 5000) == 0) {
+        logki("anti-sc-debug: su_handler(fstatat/faccessat) called %lu times, uid=%d\n", fstat_count, current_uid());
+    }
+
     uid_t uid = current_uid();
     if (!is_su_allow_uid(uid)) return;
 
@@ -355,6 +527,112 @@ int list_ap_mod_exclude(uid_t *uids, int len)
 }
 KP_EXPORT_SYMBOL(list_ap_mod_exclude);
 
+// =====================================================================
+// [CKB-MOD] G5: fstatat/faccessat 直接替换 wrapper（2026-04-11）
+//
+// 绕过 transit 框架，消除 ~40 cycles 固有开销。
+// 快速路径：uid 不在 su 授权列表 → 直接调用原始函数（零额外开销）
+// 慢路径：uid 已授权 → 检查文件名是否是 su_path → 替换为 sh_path
+// =====================================================================
+#ifdef ANTI_SIDECHANNEL_V4G
+
+// 原始函数指针（.data 段，可写）
+static void *g_orig_fstatat = NULL;
+static void *g_orig_faccessat = NULL;
+static void *g_orig_compat_fstatat = NULL;
+static void *g_orig_compat_faccessat = NULL;
+
+// 慢路径：已授权 uid，检查文件名并替换
+// 从 su_handler_arg1_ufilename_before 提取核心逻辑
+static __noinline void sucompat_check_and_replace_path(long *arg1_p)
+{
+    char __user *ufilename = (char __user *)*arg1_p;
+    char filename[SU_PATH_MAX_LEN];
+    int flen = compat_strncpy_from_user(filename, ufilename, sizeof(filename));
+    if (flen <= 0) return;
+
+    if (!strcmp(current_su_path, filename)) {
+        void *uptr = copy_to_user_stack(sh_path, sizeof(sh_path));
+        if (uptr && !IS_ERR(uptr)) {
+            *arg1_p = (long)uptr;
+        }
+    }
+}
+
+// 64 位 fstatat wrapper
+static long sucompat_fstatat_wrapper(long arg0, long arg1, long arg2,
+                                      long arg3, long arg4, long arg5)
+{
+    // 快速路径：非授权 uid 直接调用原始函数
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid)) {
+        return ((orig_syscall_func_t)g_orig_fstatat)(arg0, arg1, arg2, arg3, arg4, arg5);
+    }
+    // 慢路径：检查并替换 su_path
+    // fstatat(dfd, filename, statbuf, flag) — filename 是 arg1
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        sucompat_check_and_replace_path((long *)&regs->regs[1]);
+    } else {
+        sucompat_check_and_replace_path(&arg1);
+    }
+    return ((orig_syscall_func_t)g_orig_fstatat)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+// 64 位 faccessat wrapper
+static long sucompat_faccessat_wrapper(long arg0, long arg1, long arg2,
+                                        long arg3, long arg4, long arg5)
+{
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid)) {
+        return ((orig_syscall_func_t)g_orig_faccessat)(arg0, arg1, arg2, arg3, arg4, arg5);
+    }
+    // faccessat(dfd, filename, mode) — filename 是 arg1
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        sucompat_check_and_replace_path((long *)&regs->regs[1]);
+    } else {
+        sucompat_check_and_replace_path(&arg1);
+    }
+    return ((orig_syscall_func_t)g_orig_faccessat)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+// 32 位 compat fstatat wrapper
+static long sucompat_compat_fstatat_wrapper(long arg0, long arg1, long arg2,
+                                             long arg3, long arg4, long arg5)
+{
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid)) {
+        return ((orig_syscall_func_t)g_orig_compat_fstatat)(arg0, arg1, arg2, arg3, arg4, arg5);
+    }
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        sucompat_check_and_replace_path((long *)&regs->regs[1]);
+    } else {
+        sucompat_check_and_replace_path(&arg1);
+    }
+    return ((orig_syscall_func_t)g_orig_compat_fstatat)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+// 32 位 compat faccessat wrapper
+static long sucompat_compat_faccessat_wrapper(long arg0, long arg1, long arg2,
+                                               long arg3, long arg4, long arg5)
+{
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid)) {
+        return ((orig_syscall_func_t)g_orig_compat_faccessat)(arg0, arg1, arg2, arg3, arg4, arg5);
+    }
+    if (has_syscall_wrapper) {
+        struct pt_regs *regs = (struct pt_regs *)arg0;
+        sucompat_check_and_replace_path((long *)&regs->regs[1]);
+    } else {
+        sucompat_check_and_replace_path(&arg1);
+    }
+    return ((orig_syscall_func_t)g_orig_compat_faccessat)(arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+#endif // ANTI_SIDECHANNEL_V4G
+
 int su_compat_init()
 {
     current_su_path = default_su_path;
@@ -381,21 +659,68 @@ int su_compat_init()
     bool wrap = !!(su_config & PATCH_CONFIG_SU_HOOK_NO_WRAP);
     log_boot("su config: %x, enable: %d, wrap: %d\n", su_config, enable, wrap);
 
-    // if (!enable) return;
-
+    // execve: G7 用 fp_hook + KPM 回调注册机制
+#ifdef ANTI_SIDECHANNEL_V4G
+    fp_hook((uintptr_t)(sys_call_table + __NR_execve),
+            (void *)sucompat_execve_wrapper,
+            (void **)&g_orig_execve);
+    log_boot("G7 fp_hook __NR_execve, orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_execve);
+#else
     rc = hook_syscalln(__NR_execve, 3, before_execve, 0, (void *)0);
     log_boot("hook __NR_execve rc: %d\n", rc);
+#endif
 
+#ifdef ANTI_SIDECHANNEL_V4G
+    // =====================================================================
+    // [CKB-MOD] G5: fstatat/faccessat 改用 fp_hook 直接替换
+    // 绕过 transit 框架，消除 ~40 cycles 固有开销
+    // Hunter 测 fstatat/faccessat 延迟时走快速路径（uid 检查 + tail-call）
+    // =====================================================================
+    log_boot("sucompat G7: fp_hook ALL + execve callback registry for KPM\n");
+
+    fp_hook((uintptr_t)(sys_call_table + __NR3264_fstatat),
+            (void *)sucompat_fstatat_wrapper,
+            (void **)&g_orig_fstatat);
+    log_boot("G5 fp_hook __NR3264_fstatat, orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_fstatat);
+
+    fp_hook((uintptr_t)(sys_call_table + __NR_faccessat),
+            (void *)sucompat_faccessat_wrapper,
+            (void **)&g_orig_faccessat);
+    log_boot("G5 fp_hook __NR_faccessat, orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_faccessat);
+
+    // 32 位 compat 表
+    if (compat_sys_call_table) {
+        fp_hook((uintptr_t)(compat_sys_call_table + 327),
+                (void *)sucompat_compat_fstatat_wrapper,
+                (void **)&g_orig_compat_fstatat);
+        log_boot("G5 fp_hook compat fstatat64(327), orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_compat_fstatat);
+
+        fp_hook((uintptr_t)(compat_sys_call_table + 334),
+                (void *)sucompat_compat_faccessat_wrapper,
+                (void **)&g_orig_compat_faccessat);
+        log_boot("G5 fp_hook compat faccessat(334), orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_compat_faccessat);
+    }
+#else
     rc = hook_syscalln(__NR3264_fstatat, 4, su_handler_arg1_ufilename_before, 0, (void *)0);
     log_boot("hook __NR3264_fstatat rc: %d\n", rc);
 
     rc = hook_syscalln(__NR_faccessat, 3, su_handler_arg1_ufilename_before, 0, (void *)0);
     log_boot("hook __NR_faccessat rc: %d\n", rc);
-
-    // __NR_execve 11
+#endif
+    // __NR_execve 11 (compat)
+#ifdef ANTI_SIDECHANNEL_V4G
+    if (compat_sys_call_table) {
+        fp_hook((uintptr_t)(compat_sys_call_table + 11),
+                (void *)sucompat_compat_execve_wrapper,
+                (void **)&g_orig_compat_execve);
+        log_boot("G7 fp_hook compat execve(11), orig=%llx\n", (unsigned long long)(uintptr_t)g_orig_compat_execve);
+    }
+#else
     rc = hook_compat_syscalln(11, 3, before_execve, 0, (void *)1);
     log_boot("hook 32 __NR_execve rc: %d\n", rc);
+#endif
 
+#ifndef ANTI_SIDECHANNEL_V4G
     // __NR_fstatat64 327
     rc = hook_compat_syscalln(327, 4, su_handler_arg1_ufilename_before, 0, (void *)0);
     log_boot("hook 32 __NR_fstatat64 rc: %d\n", rc);
@@ -403,6 +728,7 @@ int su_compat_init()
     //  __NR_faccessat 334
     rc = hook_compat_syscalln(334, 3, su_handler_arg1_ufilename_before, 0, (void *)0);
     log_boot("hook 32 __NR_faccessat rc: %d\n", rc);
+#endif
 
     return 0;
 }

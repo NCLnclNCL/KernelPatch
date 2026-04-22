@@ -9,7 +9,7 @@ LD = $(TARGET_COMPILE)ld
 AS = $(TARGET_COMPILE)as
 OBJCOPY = $(TARGET_COMPILE)objcopy
 
-CFLAGS += -Wall -fno-builtin -std=gnu11 -nostdinc -mgeneral-regs-only
+CFLAGS += -Wall -fno-builtin -std=gnu11 -nostdinc -mgeneral-regs-only  -fno-stack-protector -fno-PIC
 CFLAGS += -g
 
 ifdef DEBUG
@@ -40,6 +40,7 @@ BASE_SRCS += base/sha256.c
 
 BASE_SRCS += $(wildcard patch/*.c)
 BASE_SRCS += $(wildcard patch/common/*.c)
+BASE_SRCS += patch/common/supercall_trampoline.S
 BASE_SRCS += $(wildcard patch/module/*.c)
 BASE_SRCS += $(wildcard patch/ksyms/*.c)
 

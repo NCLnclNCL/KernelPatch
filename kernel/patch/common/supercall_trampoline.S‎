@@ -1,0 +1,92 @@
+/*
+ * supercall_trampoline.S — ARM64 汇编 trampoline（方案 G3）
+ *
+ * [CKB-MOD] 2026-04-11 Anti side-channel v4-G3
+ *
+ * 核心思路：检查 arg1 的 bit[16:31] 是否等于 0x1158（ver_and_cmd magic）。
+ *   - 不等于 0x1158 → tail-jump 原始函数（零开销）
+ *   - 等于 0x1158 → 慢路径（完整 supercall 逻辑）
+ *
+ * Hunter 调用 syscall(45, "su", 0x1000) 时 arg1=0x1000，bit[16:31]=0 → 快速路径
+ * APatch Manager 调用 syscall(45, key, ver_and_cmd(key,cmd)) 时 bit[16:31]=0x1158 → 慢路径
+ *
+ * ⚠️ 如果官方修改了 ver_and_cmd 的 magic（0x1158），这里必须同步！
+ */
+
+#define VER_CMD_MAGIC   0x1158      /* ver_and_cmd 中间 16 位的 magic */
+
+.text
+.align 4
+
+/* ================================================================
+ * 64 位表 trampoline（has_syscall_wrapper 模式）
+ * 入口：x0 = struct pt_regs *regs
+ *   regs->regs[1] = ver_and_cmd 值
+ * ================================================================ */
+.global supercall_trampoline_wrapper
+.type supercall_trampoline_wrapper, %function
+supercall_trampoline_wrapper:
+    /* 从 pt_regs 取 arg1（regs->regs[1]） */
+    ldr     x9, [x0, #8]
+
+    /* 提取 bit[16:31]：右移 16 位，取低 16 位 */
+    lsr     x10, x9, #16
+    and     x10, x10, #0xFFFF
+
+    /* 检查是否等于 VER_CMD_MAGIC (0x1158) */
+    mov     x11, #VER_CMD_MAGIC
+    cmp     x10, x11
+    b.eq    .Lslow_wrapper
+
+    /* ★ 快速路径：不是有效 supercall 调用，tail-jump 原始函数 */
+    adrp    x9, g_orig_wrapper
+    ldr     x9, [x9, :lo12:g_orig_wrapper]
+    br      x9
+
+.Lslow_wrapper:
+    /* 慢路径：有效 supercall 调用，走 C 函数 */
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    bl      supercall_g_slow_path_wrapper
+    ldp     x29, x30, [sp], #16
+    ret
+.size supercall_trampoline_wrapper, . - supercall_trampoline_wrapper
+
+
+/* ================================================================
+ * 64 位表 trampoline（无 wrapper 模式，旧内核 < 4.17）
+ * 入口：x0 = key, x1 = ver_and_cmd, x2..x5 = a1..a4
+ * ================================================================ */
+.global supercall_trampoline_nowrap
+.type supercall_trampoline_nowrap, %function
+supercall_trampoline_nowrap:
+    lsr     x9, x1, #16
+    and     x9, x9, #0xFFFF
+    mov     x10, #VER_CMD_MAGIC
+    cmp     x9, x10
+    b.eq    .Lslow_nowrap
+
+    adrp    x9, g_orig_nowrap
+    ldr     x9, [x9, :lo12:g_orig_nowrap]
+    br      x9
+
+.Lslow_nowrap:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    bl      supercall_g_slow_path_nowrap
+    ldp     x29, x30, [sp], #16
+    ret
+.size supercall_trampoline_nowrap, . - supercall_trampoline_nowrap
+
+
+/* ================================================================
+ * 32 位 compat 表 trampoline
+ * 直接 tail-jump，零开销
+ * ================================================================ */
+.global supercall_trampoline_compat
+.type supercall_trampoline_compat, %function
+supercall_trampoline_compat:
+    adrp    x9, g_orig_compat
+    ldr     x9, [x9, :lo12:g_orig_compat]
+    br      x9
+.size supercall_trampoline_compat, . - supercall_trampoline_compat
