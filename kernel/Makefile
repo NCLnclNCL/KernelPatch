@@ -40,7 +40,7 @@ BASE_SRCS += base/sha256.c
 
 BASE_SRCS += $(wildcard patch/*.c)
 BASE_SRCS += $(wildcard patch/common/*.c)
-BASE_SRCS += patch/common/supercall_trampoline.S
+BASE_SRCS += patch/common/trampoline.S
 BASE_SRCS += $(wildcard patch/module/*.c)
 BASE_SRCS += $(wildcard patch/ksyms/*.c)
 
