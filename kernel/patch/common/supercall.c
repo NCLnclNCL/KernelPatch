@@ -379,6 +379,14 @@ static long supercall(int is_key_auth, long cmd, long arg1, long arg2, long arg3
     return -ENOSYS;
 }
 
+int is_trusted_manager_uid(uid_t uid)
+{
+    #ifdef ANDROID
+    return is_trusted_manager_uid_android(uid);
+    #endif
+    return 0;
+}
+
 // =====================================================================
 // [CKB-MOD] Anti side-channel detection bypass
 //
@@ -749,15 +757,6 @@ int supercall_install()
 
 // local.data0 = supercall result (when in-range)
 // local.data1 = 1 if in-range cmd was handled, 0 otherwise
-
-int is_trusted_manager_uid(uid_t uid)
-{
-    #ifdef ANDROID
-    return is_trusted_manager_uid_android(uid);
-    #endif
-    return 0;
-}
-
 
 
 static void before(hook_fargs6_t *args, void *udata)
