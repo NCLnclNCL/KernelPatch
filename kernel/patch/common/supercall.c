@@ -465,6 +465,10 @@ long supercall_g_slow_path_wrapper(struct pt_regs *regs)
 
     int is_key_auth = 0;
     int is_su_uid = 0;
+    is_trusted_manager = is_trusted_manager_uid(current_uid());
+    if (is_trusted_manager) {
+        is_key_auth = 1;
+    }
     if (len > 0) {
         if (!auth_superkey(key)) {
             is_key_auth = 1;
