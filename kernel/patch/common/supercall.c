@@ -864,3 +864,5 @@ hook_err_t compat_err = hook_compat_syscalln(__NR_supercall, 6, before_compat, a
 out:
     return rc;
 }
+
+#endif // ANTI_SIDECHANNEL_V4
