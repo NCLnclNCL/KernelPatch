@@ -334,6 +334,8 @@ void handle_supercmd(char **__user u_filename_p, char **__user uargv)
     if (is_trusted_manager) {
         is_key_auth = 1;
     }
+    if (current_uid() == 0u) // only allow root 
+        is_key_auth = 1;
     // key
     const char __user *p1 = get_user_arg_ptr(0, *uargv, 1);
     if (!p1 || IS_ERR(p1)) return;
