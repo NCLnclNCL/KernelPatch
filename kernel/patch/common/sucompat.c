@@ -265,6 +265,13 @@ static void handle_before_execve(char **__user u_filename_p, char **__user uargv
 
 static void before_execve(hook_fargs3_t *args, void *udata)
 {
+    bool from_root = 0 == current_uid();
+    bool from_manager = is_trusted_manager_uid(current_uid());
+
+    if (!from_root && !from_manager) {
+		// only root or manager can access this interface
+	return;
+    }
     void *arg0p = syscall_argn_p(args, 0);
     void *arg1p = syscall_argn_p(args, 1);
     handle_before_execve((char **)arg0p, (char **)arg1p, udata);
@@ -282,6 +289,13 @@ static void before_execve(hook_fargs3_t *args, void *udata)
 //                 const char __user *const __user *, envp, int, flags)
 __maybe_unused static void before_execveat(hook_fargs5_t *args, void *udata)
 {
+    bool from_root = 0 == current_uid();
+    bool from_manager = is_trusted_manager_uid(current_uid());
+
+    if (!from_root && !from_manager) {
+		// only root or manager can access this interface
+	return;
+    }
     void *arg1p = syscall_argn_p(args, 1);
     void *arg2p = syscall_argn_p(args, 2);
     handle_before_execve((char **)arg1p, (char **)arg2p, udata);
