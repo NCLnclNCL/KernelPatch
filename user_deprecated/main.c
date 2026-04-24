@@ -17,6 +17,7 @@
 #include "kpatch.h"
 #include "su.h"
 #include "kpm.h"
+#include "rehook.h"
 
 #ifdef ANDROID
 #include "android/sumgr.h"
@@ -53,6 +54,8 @@ static void usage(int status)
 #ifdef ANDROID
                 "sumgr       SU permission manager for Android.\n"
 #endif
+                "rehook             Set rehook mode (enable and disable).\n"
+                "rehook_status      Check current rehook mode.\n"
                 "\n",
                 SUPERCALL_HELLO_ECHO);
     }
@@ -99,6 +102,9 @@ int main(int argc, char **argv)
         { "su", 's' },
         { "kpm", 'k' },
 
+        { "rehook", 'r' },
+        { "rehook_status", 'q' },
+
         { "bootlog", 'l' },
         { "panic", '.' },
         { "test", 't' },
@@ -140,6 +146,12 @@ int main(int argc, char **argv)
     case 'k':
         strcat(program_name, " kpm");
         return kpm_main(argc - 2, argv + 2);
+    case 'r':
+        strcat(program_name, " rehook");
+        return kprehook_main(argc - 2, argv + 2);
+    case 'q':
+        strcat(program_name, " rehook_status");
+        return kprehook_status_main(argc - 2, argv + 2);
     case 'l':
         bootlog(key);
         break;

@@ -53,6 +53,7 @@ void module_init();
 void syscall_init();
 int kstorage_init();
 int su_compat_init();
+int rehook_init();
 
 #ifdef ANDROID
 int android_user_init();
@@ -91,6 +92,8 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
     rc = resolve_pt_regs();
     log_boot("resolve_pt_regs done: %d\n", rc);
 
+    rc = rehook_init();
+    log_boot("rehook_init done: %d\n", rc);
 #ifdef ANDROID
     rc = android_sepolicy_flags_fix();
     log_boot("android_sepolicy_flags_fix done: %d\n", rc);
