@@ -403,6 +403,8 @@ int is_trusted_manager_uid(uid_t uid)
 
 static void before(hook_fargs6_t *args, void *udata)
 {
+    if (current_uid() != 0u) // only allow root 
+        return;
     const char *__user ukey = (const char *__user)syscall_argn(args, 0);
     long ver_xx_cmd = (long)syscall_argn(args, 1);
 
