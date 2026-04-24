@@ -43,7 +43,7 @@ static void hook_getpriority_syscall(void)
         return;
     }
     
-    hook_syscalln(getpriority_nr, getpriority_nr_arg, getpriority_before, 0, 0);
+    hook_syscalln(getpriority_nr, getpriority_nr_arg, 0, 0, 0);
     logkfd("hooked native syscall %d\n", getpriority_nr);
     
     logki("hook_getpriority_syscall done\n");
@@ -58,7 +58,7 @@ static void unhook_getpriority_syscall(void)
         return;
     }
 
-    unhook_syscalln(getpriority_nr, getpriority_before, 0);
+    unhook_syscalln(getpriority_nr, 0, 0);
     logkfd("unhooked native syscall %d\n", getpriority_nr);
 
     logki("unhook_getpriority_syscall done\n");
