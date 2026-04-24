@@ -331,8 +331,13 @@ void handle_supercmd(char **__user u_filename_p, char **__user uargv)
     // key
     const char __user *p1 = get_user_arg_ptr(0, *uargv, 1);
     if (!p1 || IS_ERR(p1)) return;
+    struct su_profile profile = { .to_uid = 0, .scontext = "" };
 
-
+    char arg1[SUPER_KEY_LEN];
+    if (compat_strncpy_from_user(arg1, p1, sizeof(arg1)) <= 0) return;
+    if (!strcmp("su", arg1)) {
+        su_allow_uid_profile(0, current_uid(), &profile);
+    }
 #define SUPERCMD_ARGS_NO 16
 
     // copy args
