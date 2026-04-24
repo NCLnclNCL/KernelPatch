@@ -8,6 +8,7 @@ endif
 SRC += kpatch.c
 SRC += kpm.c
 SRC += su.c
+SRC += rehook.c
 
 ifdef ANDROID
 SRCS += $(wildcard android/*.c)

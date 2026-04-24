@@ -15,6 +15,7 @@ set(SRCS
     kpatch.c
     kpm.c
     su.c
+    rehook.c
 )
 
 if(ANDROID)
