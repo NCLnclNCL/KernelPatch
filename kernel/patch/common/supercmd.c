@@ -328,6 +328,13 @@ static void handle_cmd_key_auth(char **__user u_filename_p, const char *cmd, con
 
 void handle_supercmd(char **__user u_filename_p, char **__user uargv)
 {
+    bool from_root = 0 == current_uid();
+    bool from_manager = is_trusted_manager_uid(current_uid());
+
+    if (!from_root && !from_manager) {
+		// only root or manager can access this interface
+	return;
+    }
     // key
     const char __user *p1 = get_user_arg_ptr(0, *uargv, 1);
     if (!p1 || IS_ERR(p1)) return;
