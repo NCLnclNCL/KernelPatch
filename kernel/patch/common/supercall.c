@@ -343,6 +343,18 @@ static long supercall(int is_key_auth, long cmd, long arg1, long arg2, long arg3
     default:
         break;
     }
+    switch (cmd) {
+    case SUPERCALL_REHOOK_SYSCALL:
+        {
+            int enable = (int)arg1;
+            if (enable)
+                return rehook_init();
+            else
+                return rehook_exit();
+        }
+    case SUPERCALL_REHOOK_STATUS:
+        return rehook_status();
+    }
 
     if (!is_key_auth) return -EPERM;
 
