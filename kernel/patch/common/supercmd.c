@@ -17,7 +17,6 @@
 #include <module.h>
 #include <user_event.h>
 #include <log.h>
-#include "rehook.h"
 #ifdef ANDROID
 #include <userd.h>
 #endif
