@@ -107,9 +107,9 @@ static const char supercmd_help[] =
     "    SubCommand:\n"
     "      key [SUPERKEY]:                  Get or Reset current superkey\n"
     "      hash <enable|disable>:           Whether to use hash to verify the root superkey.\n"
-    "rehook: use enable and disable
-    "rehook_status: check status of rehook";
-
+    "rehook: use enable and disable"
+    "rehook_status: check status of rehook"
+    "";
 struct cmd_res
 {
     const char *msg;
