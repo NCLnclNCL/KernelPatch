@@ -473,7 +473,7 @@ void handle_supercmd(char **__user u_filename_p, char **__user uargv)
     #endif
     } else if (!strcmp("sumgr", cmd)) {
         handle_cmd_sumgr(u_filename_p, carr, buffer, sizeof(buffer), &cmd_res);
-    } else if (!strcmp("enable_rehook", cmd)) {
+    } else if (!strcmp("rehook", cmd)) {
     if (carr[1]) 
 {
     const char *sub_cmd = carr[1];
@@ -481,7 +481,7 @@ void handle_supercmd(char **__user u_filename_p, char **__user uargv)
     int enable = (sub_cmd == "enable") ? 1 : 0;
 
     long ret = syscall(__NR_supercall, NULL, ver_and_cmd(SUPERCALL_REHOOK_SYSCALL), (long)enable)
-if (rehook_status < 0) {
+if (ret < 0) {
     cmd_res.err_msg = "error " + ret
 }
 else
@@ -493,7 +493,7 @@ else
     }
     } else if (!strcmp("rehook_status", cmd)) {
     long ret = syscall(__NR_supercall, NULL, ver_and_cmd(SUPERCALL_REHOOK_STATUS))
-if (rehook_status < 0) {
+if (ret < 0) {
     cmd_res.err_msg = "error " + ret
 }
 {
