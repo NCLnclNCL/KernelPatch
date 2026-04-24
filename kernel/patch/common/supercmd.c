@@ -20,7 +20,7 @@
 #ifdef ANDROID
 #include <userd.h>
 #endif
-
+#include <supercall.h>
 static char *__user supercmd_str_to_user_sp(const char *data, uintptr_t *sp)
 {
     int len = strlen(data) + 1;
