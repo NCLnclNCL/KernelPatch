@@ -391,7 +391,7 @@ int is_trusted_manager_uid(uid_t uid)
 
 static void before(hook_fargs6_t *args, void *udata)
 {
-	int uid = current_uid();
+    int uid = current_uid();
     bool from_root = (0 == uid);
     bool from_manager = is_trusted_manager_uid(uid);
 
@@ -399,7 +399,6 @@ static void before(hook_fargs6_t *args, void *udata)
 		// only root or manager can access this interface
 	return;
     }
-    const char *__user ukey = (const char *__user)syscall_argn(args, 0);
     long ver_xx_cmd = (long)syscall_argn(args, 1);
 
     // todo: from 0.10.5
@@ -409,9 +408,6 @@ static void before(hook_fargs6_t *args, void *udata)
     long cmd = ver_xx_cmd & 0xFFFF;
     if (cmd < SUPERCALL_HELLO || cmd > SUPERCALL_MAX) return;
 
-    char key[MAX_KEY_LEN];
-    long len = compat_strncpy_from_user(key, ukey, MAX_KEY_LEN);
-    if (len <= 0) return;
 
     long a1 = (long)syscall_argn(args, 2);
     long a2 = (long)syscall_argn(args, 3);
