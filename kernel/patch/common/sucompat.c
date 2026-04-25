@@ -190,10 +190,6 @@ KP_EXPORT_SYMBOL(su_get_path);
 
 static void handle_before_execve(char **__user u_filename_p, char **__user uargv, void *udata)
 {
-    uid_t uid = current_uid();
-    if (!is_su_allow_uid(uid) && !is_trusted_manager_uid(uid)){
- return; 
-}
 
     char __user *ufilename = *u_filename_p;
     char filename[SU_PATH_MAX_LEN];
@@ -270,6 +266,10 @@ static void handle_before_execve(char **__user u_filename_p, char **__user uargv
 
 static void before_execve(hook_fargs3_t *args, void *udata)
 {
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid) && !is_trusted_manager_uid(uid)){
+     return; 
+    }
     void *arg0p = syscall_argn_p(args, 0);
     void *arg1p = syscall_argn_p(args, 1);
     handle_before_execve((char **)arg0p, (char **)arg1p, udata);
@@ -287,6 +287,10 @@ static void before_execve(hook_fargs3_t *args, void *udata)
 //                 const char __user *const __user *, envp, int, flags)
 __maybe_unused static void before_execveat(hook_fargs5_t *args, void *udata)
 {
+    uid_t uid = current_uid();
+    if (!is_su_allow_uid(uid) && !is_trusted_manager_uid(uid)){
+     return; 
+    }
     void *arg1p = syscall_argn_p(args, 1);
     void *arg2p = syscall_argn_p(args, 2);
     handle_before_execve((char **)arg1p, (char **)arg2p, udata);
