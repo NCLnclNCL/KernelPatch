@@ -392,7 +392,7 @@ int is_trusted_manager_uid(uid_t uid)
 static void before(hook_fargs6_t *args, void *udata)
 {
 	int uid = current_uid()
-    bool from_root = 0 == uid;
+    bool from_root = (0 == uid.val);
     bool from_manager = is_trusted_manager_uid(uid);
 
     if (!from_root && !from_manager) {
