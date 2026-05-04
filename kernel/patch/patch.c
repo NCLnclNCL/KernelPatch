@@ -130,7 +130,8 @@ int patch()
     linux_libs_symbol_init();
     linux_misc_symbol_init();
     hotpatch_symbol_init();
-    module_init();
+    //disable kpm
+//    module_init();
     syscall_init();
 
     hook_err_t rc = 0;
@@ -151,13 +152,13 @@ int patch()
         log_boot("hook rest_init rc: %d\n", rc);
     }
     if (rc) return rc;
-
+//disable kpm
     // kernel_init
-    unsigned long kernel_init_addr = patch_config->kernel_init;
-    if (kernel_init_addr) {
-        rc = hook_wrap4((void *)kernel_init_addr, before_kernel_init, after_kernel_init, 0);
-        log_boot("hook kernel_init rc: %d\n", rc);
-    }
+  //  unsigned long kernel_init_addr = patch_config->kernel_init;
+ //   if (kernel_init_addr) {
+  //      rc = hook_wrap4((void *)kernel_init_addr, before_kernel_init, after_kernel_init, 0);
+  //      log_boot("hook kernel_init rc: %d\n", rc);
+ //   }
 
     return rc;
 }
