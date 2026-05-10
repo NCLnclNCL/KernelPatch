@@ -1,293 +1,223 @@
-From a31359472e711e991cfa70196052e6f5ce0e826a Mon Sep 17 00:00:00 2001
+From f4e0a58ce958064ac6f8a7915102030108bbe807 Mon Sep 17 00:00:00 2001
 From: Admirepowered <admire1971@outlook.com>
-Date: Sat, 9 May 2026 23:38:44 +0800
-Subject: [PATCH] fix build warnings
+Date: Sun, 10 May 2026 00:09:00 +0800
+Subject: [PATCH] fix fix side channel attack caused by nop scanner
 
 ---
- kernel/linux/include/linux/fs.h |  21 ++++-
- kernel/patch/android/userd.c    | 131 ++++++++++++++++++++++----------
- 2 files changed, 106 insertions(+), 46 deletions(-)
+ kernel/base/fphook.c | 55 ++++++++++++++++++--------------------------
+ kernel/base/hmem.h   |  2 +-
+ kernel/base/hook.c   | 53 ++++++++++++++++++------------------------
+ 3 files changed, 46 insertions(+), 64 deletions(-)
 
-diff --git a/kernel/linux/include/linux/fs.h b/kernel/linux/include/linux/fs.h
-index d566df3d..5de7a32f 100644
---- a/kernel/linux/include/linux/fs.h
-+++ b/kernel/linux/include/linux/fs.h
-@@ -357,15 +357,21 @@ static inline loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
-     kfunc_direct_call(vfs_llseek, file, offset, whence);
- }
+diff --git a/kernel/base/fphook.c b/kernel/base/fphook.c
+index 2ca0f609..9f6be788 100644
+--- a/kernel/base/fphook.c
++++ b/kernel/base/fphook.c
+@@ -13,15 +13,16 @@
+ // transit0
+ typedef uint64_t (*transit0_func_t)();
  
--/* Directory iteration context (kernel 3.11+).
-- * Actor signature: int return (4.x) or bool return (5.0+) — both are ABI-compatible
-- * on arm64 for 0/1 values, so we use the 5.0+ bool form to satisfy the compiler.
-+/* Directory iteration context.
-+ * Linux < 6.1 uses an int actor, while Linux 6.1+ uses a bool actor.
-+ * Keep both layouts so callers can use the signature that matches the
-+ * target kernel without incompatible function pointer assignments.
-  */
- struct dir_context {
-     bool (*actor)(struct dir_context *, const char *, int, loff_t, u64, unsigned int);
-     loff_t pos;
- };
- 
-+struct dir_context_int {
-+    int (*actor)(struct dir_context_int *, const char *, int, loff_t, u64, unsigned int);
-+    loff_t pos;
-+};
++#define current_fp_hook_chain() ({ \
++    uint64_t chain_va; \
++    asm volatile("mov %0, x16" : "=r"(chain_va)); \
++    (fp_hook_chain_t *)chain_va; \
++})
 +
- extern int kfunc_def(iterate_dir)(struct file *, struct dir_context *);
- 
- static inline int iterate_dir(struct file *file, struct dir_context *ctx)
-@@ -375,10 +381,17 @@ static inline int iterate_dir(struct file *file, struct dir_context *ctx)
-     return 0; /* symbol not resolved; caller checks result via its context */
- }
- 
-+static inline int iterate_dir_int(struct file *file, struct dir_context_int *ctx)
-+{
-+    kfunc_call(iterate_dir, file, (struct dir_context *)ctx);
-+    kfunc_not_found();
-+    return 0; /* symbol not resolved; caller checks result via its context */
-+}
-+
- static inline void putname(struct filename *name)
+ uint64_t __attribute__((section(".fp.transit0.text"))) __attribute__((__noinline__)) _fp_transit0()
  {
-     kfunc_direct_call_void(putname, name);
-     // kfunc_direct_call_void(final_putname, name);
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    fp_hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, fp_hook_chain_t, transit);
++    fp_hook_chain_t *hook_chain = current_fp_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs0_t fargs;
+     fargs.skip_origin = 0;
+     fargs.chain = hook_chain;
+@@ -49,13 +50,8 @@ typedef uint64_t (*transit4_func_t)(uint64_t, uint64_t, uint64_t, uint64_t);
+ uint64_t __attribute__((section(".fp.transit4.text"))) __attribute__((__noinline__))
+ _fp_transit4(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3)
+ {
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    fp_hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, fp_hook_chain_t, transit);
++    fp_hook_chain_t *hook_chain = current_fp_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs4_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -89,13 +85,8 @@ uint64_t __attribute__((section(".fp.transit8.text"))) __attribute__((__noinline
+ _fp_transit8(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
+              uint64_t arg7)
+ {
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    fp_hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, fp_hook_chain_t, transit);
++    fp_hook_chain_t *hook_chain = current_fp_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs8_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -135,13 +126,8 @@ uint64_t __attribute__((section(".fp.transit12.text"))) __attribute__((__noinlin
+ _fp_transit12(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
+               uint64_t arg7, uint64_t arg8, uint64_t arg9, uint64_t arg10, uint64_t arg11)
+ {
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    fp_hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, fp_hook_chain_t, transit);
++    fp_hook_chain_t *hook_chain = current_fp_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs12_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -208,12 +194,17 @@ static hook_err_t hook_chain_prepare(uint32_t *transit, int32_t argno)
+     int32_t transit_num = (transit_end - transit_start) / 4;
+ 
+     // todo: assert
+-    if (transit_num >= TRANSIT_INST_NUM) return -HOOK_TRANSIT_NO_MEM;
++    if (transit_num + 6 > TRANSIT_INST_NUM) return -HOOK_TRANSIT_NO_MEM;
+ 
+     transit[0] = ARM64_BTI_JC;
+-    transit[1] = ARM64_NOP;
++    transit[1] = 0x58000070; // LDR X16, #12
++    transit[2] = 0x14000004; // B #16
++    transit[3] = ARM64_NOP;
++    fp_hook_chain_t *chain = local_container_of(transit, fp_hook_chain_t, transit);
++    transit[4] = ((uint64_t)chain) & 0xFFFFFFFF;
++    transit[5] = ((uint64_t)chain) >> 32u;
+     for (int i = 0; i < transit_num; i++) {
+-        transit[i + 2] = ((uint32_t *)transit_start)[i];
++        transit[i + 6] = ((uint32_t *)transit_start)[i];
+     }
+     return HOOK_NO_ERR;
  }
+@@ -305,4 +296,4 @@ void fp_hook_unwrap(uintptr_t fp_addr, void *before, void *after)
+     hook_mem_free(chain);
+     logkv("Unwrap func pointer: %llx, %llx, %llx\n", fp_addr, before, after);
+ }
+-KP_EXPORT_SYMBOL(fp_hook_unwrap);
+\ No newline at end of file
++KP_EXPORT_SYMBOL(fp_hook_unwrap);
+diff --git a/kernel/base/hmem.h b/kernel/base/hmem.h
+index 0ffe4481..d4d28bad 100644
+--- a/kernel/base/hmem.h
++++ b/kernel/base/hmem.h
+@@ -13,4 +13,4 @@ void *hook_mem_zalloc(uintptr_t origin_addr, enum hook_type type);
+ void hook_mem_free(void *hook_mem);
+ void *hook_get_mem_from_origin(uint64_t origin_addr);
  
 -#endif
 \ No newline at end of file
 +#endif
-diff --git a/kernel/patch/android/userd.c b/kernel/patch/android/userd.c
-index bd1991aa..a03207fa 100644
---- a/kernel/patch/android/userd.c
-+++ b/kernel/patch/android/userd.c
-@@ -517,6 +517,15 @@ struct apk_inner_ctx {
-     const char *package;
- };
+diff --git a/kernel/base/hook.c b/kernel/base/hook.c
+index 93cd538e..2a823e61 100644
+--- a/kernel/base/hook.c
++++ b/kernel/base/hook.c
+@@ -343,15 +343,16 @@ int32_t branch_from_to(uint32_t *tramp_buf, uint64_t src_addr, uint64_t dst_addr
+ // transit0
+ typedef uint64_t (*transit0_func_t)();
  
-+struct apk_inner_ctx_int {
-+    struct dir_context_int dctx; /* MUST be first member for safe cast */
-+    const char *outer_dir;       /* parent path, e.g. "/data/app/~~abc/" */
-+    char *result;
-+    size_t result_len;
-+    int found;
-+    const char *package;
-+};
++#define current_inline_hook_chain() ({ \
++    uint64_t chain_va; \
++    asm volatile("mov %0, x16" : "=r"(chain_va)); \
++    (hook_chain_t *)chain_va; \
++})
 +
- static bool apk_inner_actor(struct dir_context *dctx,
-                             const char *name, int namelen,
-                             loff_t offset, u64 ino, unsigned int d_type)
-@@ -566,12 +575,12 @@ static bool apk_inner_actor(struct dir_context *dctx,
-     return false;
- }
- 
--static int apk_inner_actor_int(struct dir_context *dctx,
-+static int apk_inner_actor_int(struct dir_context_int *dctx,
-                             const char *name, int namelen,
-                             loff_t offset, u64 ino, unsigned int d_type)
+ uint64_t __attribute__((section(".transit0.text"))) __attribute__((__noinline__)) _transit0()
  {
--    struct apk_inner_ctx *ctx =
--        container_of(dctx, struct apk_inner_ctx, dctx);
-+    struct apk_inner_ctx_int *ctx =
-+        container_of(dctx, struct apk_inner_ctx_int, dctx);
- 
-     const char *pkg;
-     size_t len, outer_len, path_len;
-@@ -626,6 +635,16 @@ struct apk_outer_ctx {
-     const char *package;
- };
- 
-+struct apk_outer_ctx_int {
-+    struct dir_context_int dctx; /* MUST be first member */
-+    char *result;
-+    size_t result_len;
-+    int found;
-+    char *inner_path; /* heap-allocated: "/data/app/~~<hash>/" */
-+    size_t inner_path_len;
-+    const char *package;
-+};
-+
- static bool apk_outer_actor(struct dir_context *dctx,
-                             const char *name, int namelen,
-                             loff_t offset, u64 ino, unsigned int d_type)
-@@ -679,17 +698,17 @@ static bool apk_outer_actor(struct dir_context *dctx,
-     vfree(inner);
-     return true;
- }
--/* https://elixir.bootlin.com/linux/v6.0.19/source/include/linux/fs.h#L2049
-+/* https://elixir.bootlin.com/linux/v6.0.19/source/include/linux/fs.h#L2049 */
- /* Note: the return value semantics of the actor function changed in Linux 6.1:
-  * true to continue iterating, false to stop -> 0 to continue, nonzero to stop.
-  * We support both versions for compatibility with a wider range of kernels.
-  */
--static int apk_outer_actor_int(struct dir_context *dctx,
-+static int apk_outer_actor_int(struct dir_context_int *dctx,
-                             const char *name, int namelen,
-                             loff_t offset, u64 ino, unsigned int d_type)
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, hook_chain_t, transit);
++    hook_chain_t *hook_chain = current_inline_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs0_t fargs;
+     fargs.skip_origin = 0;
+     fargs.chain = hook_chain;
+@@ -379,13 +380,8 @@ typedef uint64_t (*transit4_func_t)(uint64_t, uint64_t, uint64_t, uint64_t);
+ uint64_t __attribute__((section(".transit4.text"))) __attribute__((__noinline__))
+ _transit4(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3)
  {
--    struct apk_outer_ctx *ctx = container_of(dctx, struct apk_outer_ctx, dctx);
--    struct apk_inner_ctx *inner;
-+    struct apk_outer_ctx_int *ctx = container_of(dctx, struct apk_outer_ctx_int, dctx);
-+    struct apk_inner_ctx_int *inner;
-     struct file *inner_dir;
-     int len;
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, hook_chain_t, transit);
++    hook_chain_t *hook_chain = current_inline_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs4_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -419,13 +415,8 @@ uint64_t __attribute__((section(".transit8.text"))) __attribute__((__noinline__)
+ _transit8(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
+           uint64_t arg7)
+ {
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, hook_chain_t, transit);
++    hook_chain_t *hook_chain = current_inline_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs8_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -465,13 +456,8 @@ uint64_t __attribute__((section(".transit12.text"))) __attribute__((__noinline__
+ _transit12(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
+            uint64_t arg7, uint64_t arg8, uint64_t arg9, uint64_t arg10, uint64_t arg11)
+ {
+-    uint64_t this_va;
+-    asm volatile("adr %0, ." : "=r"(this_va));
+-    uint32_t *vptr = (uint32_t *)this_va;
+-    while (*--vptr != ARM64_NOP) {
+-    };
+-    vptr--;
+-    hook_chain_t *hook_chain = local_container_of((uint64_t)vptr, hook_chain_t, transit);
++    hook_chain_t *hook_chain = current_inline_hook_chain();
++    if (!hook_chain) return 0;
+     hook_fargs12_t fargs;
+     fargs.skip_origin = 0;
+     fargs.arg0 = arg0;
+@@ -691,12 +677,17 @@ static hook_err_t hook_chain_prepare(uint32_t *transit, int32_t argno)
  
-@@ -717,18 +736,14 @@ static int apk_outer_actor_int(struct dir_context *dctx,
-         return 0;
+     int32_t transit_num = (transit_end - transit_start) / 4;
+     // todo:assert
+-    if (transit_num >= TRANSIT_INST_NUM) return -HOOK_TRANSIT_NO_MEM;
++    if (transit_num + 6 > TRANSIT_INST_NUM) return -HOOK_TRANSIT_NO_MEM;
+ 
+     transit[0] = ARM64_BTI_JC;
+-    transit[1] = ARM64_NOP;
++    transit[1] = 0x58000070; // LDR X16, #12
++    transit[2] = 0x14000004; // B #16
++    transit[3] = ARM64_NOP;
++    hook_chain_t *chain = local_container_of(transit, hook_chain_t, transit);
++    transit[4] = ((uint64_t)chain) & 0xFFFFFFFF;
++    transit[5] = ((uint64_t)chain) >> 32u;
+     for (int i = 0; i < transit_num; i++) {
+-        transit[i + 2] = ((uint32_t *)transit_start)[i];
++        transit[i + 6] = ((uint32_t *)transit_start)[i];
      }
-     memset(inner, 0, sizeof(*inner));
--    if (kver >= VERSION(6, 1, 0)) {
--        inner->dctx.actor = apk_inner_actor;
--    } else {
--        inner->dctx.actor = apk_inner_actor_int;
--    }
-+    inner->dctx.actor = apk_inner_actor_int;
-     inner->dctx.pos = 0;
-     inner->outer_dir = ctx->inner_path;
-     inner->result = ctx->result;
-     inner->result_len = ctx->result_len;
-     inner->package = ctx->package;
- 
--    iterate_dir(inner_dir, &inner->dctx);
-+    iterate_dir_int(inner_dir, &inner->dctx);
-     filp_close(inner_dir, 0);
- 
-     if (inner->found) {
-@@ -748,7 +763,9 @@ static int find_trusted_manager_apk_path(char *apk_path,
-     
-     log_boot("finding apk path for package: %s\n", trusted_managers[index].package);
-     struct apk_outer_ctx *outer = NULL;
-+    struct apk_outer_ctx_int *outer_int = NULL;
-     struct apk_inner_ctx *flat = NULL;
-+    struct apk_inner_ctx_int *flat_int = NULL;
-     struct file *app_dir;
-     int rc = -ENOENT;
- 
-@@ -769,18 +786,33 @@ static int find_trusted_manager_apk_path(char *apk_path,
-     pkg_buf[len] = '\0';
-     apk_path[0] = '\0';
- 
--    flat = vmalloc(sizeof(*flat));
--    if (!flat) { rc = -ENOMEM; goto out_free; }
-+    if (kver >= VERSION(6, 1, 0)) {
-+        flat = vmalloc(sizeof(*flat));
-+        if (!flat) { rc = -ENOMEM; goto out_free; }
- 
--    outer = vmalloc(sizeof(*outer));
--    if (!outer) { rc = -ENOMEM; goto out_free; }
-+        outer = vmalloc(sizeof(*outer));
-+        if (!outer) { rc = -ENOMEM; goto out_free; }
- 
--    memset(flat, 0, sizeof(*flat));
--    memset(outer, 0, sizeof(*outer));
-+        memset(flat, 0, sizeof(*flat));
-+        memset(outer, 0, sizeof(*outer));
- 
--    outer->inner_path = vmalloc(256);
--    if (!outer->inner_path) { rc = -ENOMEM; goto out_free; }
--    outer->inner_path_len = 256;
-+        outer->inner_path = vmalloc(256);
-+        if (!outer->inner_path) { rc = -ENOMEM; goto out_free; }
-+        outer->inner_path_len = 256;
-+    } else {
-+        flat_int = vmalloc(sizeof(*flat_int));
-+        if (!flat_int) { rc = -ENOMEM; goto out_free; }
-+
-+        outer_int = vmalloc(sizeof(*outer_int));
-+        if (!outer_int) { rc = -ENOMEM; goto out_free; }
-+
-+        memset(flat_int, 0, sizeof(*flat_int));
-+        memset(outer_int, 0, sizeof(*outer_int));
-+
-+        outer_int->inner_path = vmalloc(256);
-+        if (!outer_int->inner_path) { rc = -ENOMEM; goto out_free; }
-+        outer_int->inner_path_len = 256;
-+    }
- 
-     set_priv_sel_allow(current, true);
- 
-@@ -794,22 +826,27 @@ static int find_trusted_manager_apk_path(char *apk_path,
-     }
- 
-     /* ===== Pass1 ===== */
--    //flat->dctx.actor = apk_inner_actor;
-     if (kver >= VERSION(6, 1, 0)) {
-         flat->dctx.actor = apk_inner_actor;
-+        flat->dctx.pos = 0;
-+        flat->outer_dir = "/data/app/";
-+        flat->result = apk_path;
-+        flat->result_len = apk_path_len;
-+        flat->package = pkg_buf;
-+
-+        iterate_dir(app_dir, &flat->dctx);
-     } else {
--        flat->dctx.actor = apk_inner_actor_int;
-+        flat_int->dctx.actor = apk_inner_actor_int;
-+        flat_int->dctx.pos = 0;
-+        flat_int->outer_dir = "/data/app/";
-+        flat_int->result = apk_path;
-+        flat_int->result_len = apk_path_len;
-+        flat_int->package = pkg_buf;
-+
-+        iterate_dir_int(app_dir, &flat_int->dctx);
-     }
--    // flat->dctx.actor = apk_outer_actor;
--    flat->dctx.pos = 0;
--    flat->outer_dir = "/data/app/";
--    flat->result = apk_path;
--    flat->result_len = apk_path_len;
--    flat->package = pkg_buf;
- 
--    iterate_dir(app_dir, &flat->dctx);
--
--    if (flat->found) {
-+    if ((flat && flat->found) || (flat_int && flat_int->found)) {
-         log_boot("apk found (flat): %s\n", apk_path);
-         rc = 0;
-         goto out;
-@@ -819,18 +856,23 @@ static int find_trusted_manager_apk_path(char *apk_path,
-     vfs_llseek(app_dir, 0, SEEK_SET);
-     if (kver >= VERSION(6, 1, 0)) {
-         outer->dctx.actor = apk_outer_actor;
-+        outer->dctx.pos = 0;
-+        outer->result = apk_path;
-+        outer->result_len = apk_path_len;
-+        outer->package = pkg_buf;
-+
-+        iterate_dir(app_dir, &outer->dctx);
-     } else {
--        outer->dctx.actor = apk_outer_actor_int;
--    }
--    
--    outer->dctx.pos = 0;
--    outer->result = apk_path;
--    outer->result_len = apk_path_len;
--    outer->package = pkg_buf;
-+        outer_int->dctx.actor = apk_outer_actor_int;
-+        outer_int->dctx.pos = 0;
-+        outer_int->result = apk_path;
-+        outer_int->result_len = apk_path_len;
-+        outer_int->package = pkg_buf;
- 
--    iterate_dir(app_dir, &outer->dctx);
-+        iterate_dir_int(app_dir, &outer_int->dctx);
-+    }
- 
--    if (outer->found) {
-+    if ((outer && outer->found) || (outer_int && outer_int->found)) {
-         log_boot("apk found (scramble): %s\n", apk_path);
-         rc = 0;
-         goto out;
-@@ -846,7 +888,12 @@ static int find_trusted_manager_apk_path(char *apk_path,
-         if (outer->inner_path) vfree(outer->inner_path);
-         vfree(outer);
-     }
-+    if (outer_int) {
-+        if (outer_int->inner_path) vfree(outer_int->inner_path);
-+        vfree(outer_int);
-+    }
-     if (flat) vfree(flat);
-+    if (flat_int) vfree(flat_int);
-     if (pkg_buf) vfree(pkg_buf);
-     return rc;
+     return HOOK_NO_ERR;
  }
