@@ -411,6 +411,6 @@ int su_compat_init()
     //  __NR_faccessat 334
 //    rc = hook_compat_syscalln(334, 3, su_handler_arg1_ufilename_before, 0, (void *)0);
  //   log_boot("hook 32 __NR_faccessat rc: %d\n", rc);
-    log_boot( 32 bit sucompat not hooked");
+    log_boot( "32 bit sucompat not hooked");
     return 0;
 }
