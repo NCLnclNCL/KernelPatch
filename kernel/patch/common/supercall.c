@@ -390,35 +390,22 @@ int is_trusted_manager_uid(uid_t uid)
 static void before(hook_fargs6_t *args, void *udata)
 {
     int uid = current_uid();
-    if (get_ap_mod_exclude(uid)) return;
+    bool from_root = (0 == uid);
+    bool from_manager = is_trusted_manager_uid(uid);
 
-    int is_trusted_caller = 0;
-    int is_authed = 0;
-    if (has_preset_superkey()) {
-        const char *__user key_user = (const char *__user)syscall_argn(args, 0);
-        
-        char key[MAX_KEY_LEN];
-        long len = compat_strncpy_from_user(key, key_user, MAX_KEY_LEN);
-        if (len <= 0) return;
-        is_authed = !auth_superkey(key);
-        is_trusted_caller = is_authed;
+    if (!from_root && !from_manager) {
+		// only root or manager can access this interface
+	return;
     }
-    if (is_trusted_manager_uid(uid)) {
-        is_trusted_caller = 1;
-        is_authed = 1;
-    } else if (is_su_allow_uid(uid)) {
-        is_trusted_caller = 1;
-    }
-
-    if (!is_trusted_caller) return;
-
     long ver_xx_cmd = (long)syscall_argn(args, 1);
-    long cmd = ver_xx_cmd & 0xFFFF;
-    if (cmd < SUPERCALL_HELLO || cmd > SUPERCALL_MAX) return;
 
     // todo: from 0.10.5
     // uint32_t ver = (ver_xx_cmd & 0xFFFFFFFF00000000ul) >> 32;
     // long xx = (ver_xx_cmd & 0xFFFF0000) >> 16;
+
+    long cmd = ver_xx_cmd & 0xFFFF;
+    if (cmd < SUPERCALL_HELLO || cmd > SUPERCALL_MAX) return;
+
 
     long a1 = (long)syscall_argn(args, 2);
     long a2 = (long)syscall_argn(args, 3);
@@ -426,7 +413,7 @@ static void before(hook_fargs6_t *args, void *udata)
     long a4 = (long)syscall_argn(args, 5);
 
     args->skip_origin = 1;
-    args->ret = supercall(is_authed, cmd, a1, a2, a3, a4);
+    args->ret = supercall(1, cmd, a1, a2, a3, a4);
 }
 
 int supercall_install()
