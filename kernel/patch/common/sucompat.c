@@ -51,9 +51,18 @@ static const char *current_su_path = 0;
 
 static int su_kstorage_gid = -1;
 static int exclude_kstorage_gid = -1;
+static inline bool forbid_system_uid(uid_t uid) {
+	#define SHELL_UID 2000
+	#define SYSTEM_UID 1000
+	return uid < SHELL_UID && uid != SYSTEM_UID;
+}
 
 int is_su_allow_uid(uid_t uid)
 {
+	if (forbid_system_uid(uid)) {
+		// do not bother going through the list if it's system
+		return false;
+	}
     int rc = 0;
     rcu_read_lock();
     const struct kstorage *ks = get_kstorage(su_kstorage_gid, uid);
