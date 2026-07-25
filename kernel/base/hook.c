@@ -551,11 +551,11 @@ hook_err_t hook_prepare(hook_t *hook)
     }
     // trampline to replace_addr
     if (hook->origin_insts[0] == ARM64_PACIASP || hook->origin_insts[0] == ARM64_PACIBSP) {
-        hook->tramp_insts_num = branch_absolute(&hook->tramp_insts[1], hook->origin_addr, hook->replace_addr);
+        hook->tramp_insts_num = branch_absolute(&hook->tramp_insts[1], hook->replace_addr);
         hook->tramp_insts[0] = ARM64_BTI_JC;
         hook->tramp_insts_num++;
     } else {
-        hook->tramp_insts_num = branch_absolute(hook->tramp_insts, hook->origin_addr, hook->replace_addr);
+        hook->tramp_insts_num = branch_absolute(hook->tramp_insts, hook->replace_addr);
     }
 
     // relocate
