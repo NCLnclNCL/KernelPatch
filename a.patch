@@ -1,0 +1,48 @@
+From 0bdbf61edb240cc9dca7f122dc0a58a987f23e4b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=9D=BE=E5=9D=82=E3=83=A6=E3=82=AD?=
+ <lyravoid.yuki@gmail.com>
+Date: Fri, 31 Jul 2026 14:30:48 +0800
+Subject: [PATCH] fix(kernel): Fix memory safety issues in the module list call
+ (#286)
+
+Co-authored-by: matsuzaka-yuki <matsuzaka-yuki@users.noreply.github.com>
+---
+ kernel/patch/common/supercall.c | 8 +++++---
+ kernel/patch/module/module.c    | 3 +++
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/kernel/patch/common/supercall.c b/kernel/patch/common/supercall.c
+index 3b73142a..b502dc3c 100644
+--- a/kernel/patch/common/supercall.c
++++ b/kernel/patch/common/supercall.c
+@@ -109,11 +109,13 @@ static long call_kpm_nums()
+ static long call_kpm_list(char *__user names, int len)
+ {
+     if (len <= 0) return -EINVAL;
+-    char buf[4096];
++    char buf[4096] = { 0 };
+     int sz = list_modules(buf, sizeof(buf));
++    if (sz < 0) return sz;
+     if (sz > len) return -ENOBUFS;
+-    sz = compat_copy_to_user(names, buf, len);
+-    return sz;
++    int copy_len = sz > 0 ? sz : 1;
++    int rc = compat_copy_to_user(names, buf, copy_len);
++    return rc == copy_len ? sz : -EFAULT;
+ }
+ 
+ static long call_kpm_info(const char *__user uname, char *__user out_info, int out_len)
+diff --git a/kernel/patch/module/module.c b/kernel/patch/module/module.c
+index 73cb8e5f..cf6906a3 100644
+--- a/kernel/patch/module/module.c
++++ b/kernel/patch/module/module.c
+@@ -619,6 +619,9 @@ int get_module_nums()
+ 
+ int list_modules(char *out_names, int size)
+ {
++    if (!out_names || size <= 0) return -EINVAL;
++    out_names[0] = '\0';
++
+     rcu_read_lock();
+ 
+     struct module *pos;
