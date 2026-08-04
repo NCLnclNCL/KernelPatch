@@ -341,7 +341,15 @@ static void after_getname_flags(hook_fargs3_t *args, void *udata)
     if (!is_su_allow_uid(uid) && !is_trusted_manager_uid(uid)) return;
 
     const char *name = fn->name;
-    if (!name || strcmp(name, su_get_path())) return;
+    if (!name) return;
+    // Match both the configured su path (default /system/bin/kp) and the legacy
+    // /system/bin/su that detections also probe. before_execve redirects both, so
+    // the getname_flags probe must too, otherwise a granted uid can still see su.
+#ifdef ANDROID
+    if (strcmp(name, su_get_path()) && strcmp(name, LEGACY_SU_PATH)) return;
+#else
+    if (strcmp(name, su_get_path())) return;
+#endif
 
     if (strlen(sh_path) <= strlen(name)) {
         strcpy((char *)name, sh_path);
